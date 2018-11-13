@@ -9,6 +9,8 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.distributions import normal
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 plot = plt.plot
 env = gym.make("FetchPickAndPlace-v1")
 env = gym.wrappers.FlattenDictWrapper(env, dict_keys=['observation', 'desired_goal'])
@@ -16,22 +18,18 @@ env = gym.wrappers.FlattenDictWrapper(env, dict_keys=['observation', 'desired_go
 states, actions, next_states = [], [], []
 
 #print (env.action_space.sample())
-for ep in range(10):
+for ep in range(100):
     state = env.reset()
-    for st in range(20):
+    for st in range(200):
         states.append(state)
         act = env.action_space.sample()
         next_state, _, _, _ = env.step(act)
         actions.append(act)
         next_states.append(next_state)
         state = next_state
-#env.observation_space = torch.Tensor(env.observation_space)
-#env.action_space = torch.Tensor(env.action_space)
 
 obs_dim = getattr(env.observation_space.shape[0], "tolist", lambda x= env.observation_space.shape[0]: x)()
 act_dim = getattr(env.action_space.shape[0], "tolist", lambda x= env.action_space.shape[0]: x)()
-#print (obs_dim, act_dim)
-#getattr(value, "tolist", lambda x=value: x)()
 
 normalizer = Normalizer(state_size = obs_dim, act_size = act_dim)
 #print (states.size(), actions.size(), next_states.size())
@@ -40,7 +38,8 @@ norm_dict = normalizer.fit(np.array(states), np.array(actions), np.array(next_st
 state = states[np.random.randint(0, len(states))]
 state_norm = (state - norm_dict["state_mean"])/norm_dict["state_std"]
 #print (torch.from_numpy(env.observation_space.shape[0]))
-dyn1 = NNDynamicsModel(state_size = obs_dim, act_size = act_dim, hid_size = 60, normalization = norm_dict, batch_size = 32, iterations = 5, learning_rate = 1e-3)
+
+dyn1 = NNDynamicsModel(state_size = obs_dim, act_size = act_dim, hid_size = 60, normalization = norm_dict, batch_size = 32, iterations = 5, learning_rate = 1e-3, device= device)
 dyn1.fit({"states": np.array(states[:len(states)]), "acts": np.array(actions[:len(actions)]), "next_states" : np.array(next_states[:len(next_states)])}, plot = 1)
 
 #act_opt = optim.Adam(lr=0.0001)
@@ -50,8 +49,11 @@ state_dim = obs_dim
 action_dim = act_dim
 
 actor = Actor(state_dim, action_dim, 64, init_w= .01)
+actor = actor.to(device)
 critic = Critic(state_dim, action_dim, 64)
+critic = critic.to(device)
 critic_target = Critic(state_dim, action_dim, 64)
+critic_target = critic_target.to(device)
 
 states = []
 actions = []
@@ -70,7 +72,7 @@ def compute_intr_reward(state, act, next_state):
     pred_dyn = dyn1.predict(state, act, next_states = True)
     #print (next_state.size(), pred_dyn.size())
     criterion = nn.MSELoss()
-    return criterion(torch.from_numpy(pred_dyn), torch.from_numpy(np.expand_dims(next_state, axis = 0))).numpy()*1e2
+    return criterion(torch.from_numpy(pred_dyn).type(torch.cuda.FloatTensor), torch.from_numpy(np.expand_dims(next_state, axis = 0)).type(torch.cuda.FloatTensor)).cpu().numpy()*1e2
 
 done = False
 new_states, new_actions, new_next_states = [], [], []
@@ -100,29 +102,29 @@ while ep_numb < max_eps:
         mu, sigma = actor(state.reshape((1,-1)))
         dist = normal.Normal(mu, sigma)
         action = dist.sample()
-        act_clip = np.clip(action.detach().numpy(), -1, 1)
+        act_clip = np.clip(action.cpu().detach().numpy(), -1, 1)
         act_prob = dist.log_prob(action)
-        act_prob = np.exp(act_prob.detach().numpy()).reshape((1,-1))
-        next_state, reward, done, _ = env.step(action.numpy()[0])
+        act_prob = np.exp(act_prob.cpu().detach().numpy()).reshape((1,-1))
+        next_state, reward, done, _ = env.step(action.cpu().numpy()[0])
         done = False
         state_nat = state*norm_dict["state_std"] + norm_dict["state_mean"]
         reward = compute_intr_reward(state_nat, act_clip, next_state)
         reward = np.clip(reward, -1, 1)
         if step == max_steps-1 : 
             done = True
-        next_state = np.array(next_state, dtype = np.float64)
+        next_state = np.array(next_state)
         next_state = (next_state - norm_dict["state_mean"])/(norm_dict["state_std"])
         #env.render()
         episode_reward+=reward
 
         states.append(state.reshape((1,-1)))
-        actions.append(action.numpy().reshape((1,-1)))
+        actions.append(action.cpu().numpy().reshape((1,-1)))
         next_states.append(next_state.reshape((1,-1)))
         rewards.append(np.array(reward).reshape((1,-1)))
         probs_acts.append(act_prob)
         
         new_states.append((state*(norm_dict["state_std"])) + norm_dict["state_mean"])
-        new_actions.append((action.detach().numpy()*(norm_dict["act_std"])) + norm_dict["act_mean"])
+        new_actions.append((action.cpu().detach().numpy()*(norm_dict["act_std"])) + norm_dict["act_mean"])
         new_next_states.append((next_state*(norm_dict["state_std"])) + norm_dict["state_mean"])
         
         ep_buffer.append((state.reshape((1,-1)), action.reshape((1,-1))))

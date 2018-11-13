@@ -56,24 +56,18 @@ class Normalizer():
         return self.norm_dict
 
 class DynNet(nn.Module):
-    def __init__(self, n_inp, n_out, hid_size):
+    def __init__(self, n_inp, n_out, hid_size, device):
         super(DynNet, self).__init__()
         self.n_inp = n_inp
         self.num_hidden_layers= hid_size
         self.output_action = n_out
         self.dense_1 = nn.Linear(self.n_inp, self.num_hidden_layers)
         self.dense_2 = nn.Linear(self.num_hidden_layers, self.num_hidden_layers)
-        self.output = nn.Linear(self.num_hidden_layers, self.output_action)
-        #self.initialize()
-
-    def initialize(self):
-        self.forward(np.random.randn(1, self.n_inp))
-        '''for var in self.variables:
-            if not "bias" in var.name:
-                print(var.shape)'''
+        self.output = nn.Linear(self.num_hidden_layers, self.output_action)        
+        self.device= device
     
     def forward(self, input):
-        x = input.type(torch.FloatTensor)
+        x = (input.to(self.device)).type(torch.cuda.FloatTensor)
         x = F.relu(self.dense_1(x))
         x = F.relu(self.dense_2(x))
         output = F.tanh(self.output(x))
@@ -87,12 +81,13 @@ class NNDynamicsModel():
                  normalization, #dict that has mean and std for each feature of state, acts, delta_states
                  batch_size,
                  iterations,
-                 learning_rate               
-                 ):
+                 learning_rate,               
+                 device):
         self.state_size = state_size
         self.act_size = act_size
-
-        self.network = DynNet(n_inp = self.state_size + self.act_size, n_out = self.state_size, hid_size = hid_size) 
+        self.device = device
+        self.network = DynNet(n_inp = self.state_size + self.act_size, n_out = self.state_size, hid_size = hid_size, device= self.device) 
+        self.network = (self.network).to(device)
 
         self.norm_dict = normalization
         self.batch_size = batch_size
@@ -101,13 +96,14 @@ class NNDynamicsModel():
 
         self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
         self.criterion = nn.MSELoss()
-    
+        
+
     def train_step(self, x, y, loss_mean):
         #criterion = nn.MSELoss()        
         #loss1= loss()
         #print (loss_mean)
-        out = self.network(torch.from_numpy(x)) 
-        loss = self.criterion(out, torch.from_numpy(y).type(torch.FloatTensor))
+        out = self.network((torch.from_numpy(x)).type(torch.cuda.FloatTensor)) 
+        loss = self.criterion(out, torch.from_numpy(y).to(self.device).type(torch.cuda.FloatTensor))
         if loss <  100000:            
             #loss = criterion(y, out)
             self.optimizer.zero_grad()
@@ -163,9 +159,9 @@ class NNDynamicsModel():
                 indices_batch = train_indices[start : start + self.batch_size]
                 input_batch = inputs[indices_batch, :]
                 output_batch = delta_states[indices_batch, :]
-                input_batch+=torch.randn(size =input_batch.shape)*0.0005
+                input_batch+=torch.randn((input_batch.shape), device = self.device)*0.0005
                 if l_i == 1:
-                        loss, check = self.train_step(input_batch, output_batch, 100000)
+                    loss, check = self.train_step(input_batch, output_batch, 100000)
                 else:
                     loss, check = self.train_step(input_batch, output_batch, loss_mean)
                 if check:
@@ -185,7 +181,7 @@ class NNDynamicsModel():
             input_batch = inputs[indices_batch, :]
             output_batch = delta_states[indices_batch, :]
             out = self.network(torch.from_numpy(input_batch))
-            loss = self.criterion(out, torch.from_numpy(output_batch).type(torch.FloatTensor))
+            loss = self.criterion(out, (torch.from_numpy(output_batch).to(self.device)).type(torch.cuda.FloatTensor))
             val_loss.append(loss)
             print(loss)
 
@@ -201,7 +197,7 @@ class NNDynamicsModel():
     #    print("output shape", out.shape)
     #    print("out * std shape", out*self.norm_dict["delta_state_std"])
         #denormalize output
-        out = out.detach().numpy()*self.norm_dict["delta_state_std"] + self.norm_dict["delta_state_mean"]
+        out = out.cpu().detach().numpy()*self.norm_dict["delta_state_std"] + self.norm_dict["delta_state_mean"]
         
         if next_states: out+=states
         return out

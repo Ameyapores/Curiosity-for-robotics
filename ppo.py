@@ -32,7 +32,7 @@ class Actor(nn.Module):
         self.output.weight.data.uniform_(-init_w, init_w)
 
     def forward(self, input):
-        x = torch.from_numpy(input).type(torch.FloatTensor)
+        x = torch.from_numpy(input).type(torch.cuda.FloatTensor)
         x = F.relu(self.dense_1(x))
         x = F.relu(self.dense_2(x))
         mu= F.tanh(self.output(x))
@@ -63,15 +63,15 @@ def value_loss(states, actions, next_states, rewards, next_state, done, critic, 
     if done:
         reward_sum = 0.
     else:
-        reward_sum = critic_target(torch.from_numpy(next_state).type(torch.FloatTensor))
+        reward_sum = critic_target(torch.from_numpy(next_state).type(torch.cuda.FloatTensor))
     
     discounted_rewards = []
     for reward in rewards[::-1]:
-        reward_sum = torch.from_numpy(reward).type(torch.FloatTensor) + gamma*reward_sum
+        reward_sum = torch.from_numpy(reward).type(torch.cuda.FloatTensor) + gamma*reward_sum
         discounted_rewards.append(reward_sum)
     discounted_rewards.reverse()
     
-    values = critic(torch.from_numpy(states).type(torch.FloatTensor))
+    values = critic(torch.from_numpy(states).type(torch.cuda.FloatTensor))
     advantage = torch.stack((discounted_rewards)) - values
     value_loss = (advantage**2)/2
     value_loss = torch.mean(value_loss)
@@ -101,14 +101,14 @@ def actor_update(epochs, mini_batch_size, states, actions, probs_acts, rewards, 
                 mu, sigma = actor(st.reshape((1,-1)))
                 dist = normal.Normal(mu, sigma)
                 entropies.append(dist.entropy())
-                new_prob = torch.exp(dist.log_prob(torch.from_numpy(ac)))
+                new_prob = torch.exp(dist.log_prob(torch.from_numpy(ac).type(torch.cuda.FloatTensor)))
                 p+=1e-10
-                ratio_b.append(torch.prod(new_prob/torch.from_numpy(p)))
+                ratio_b.append(torch.prod(new_prob/torch.from_numpy(p).type(torch.cuda.FloatTensor)))
                 new_probs_b.append(new_prob)
             entropies = torch.sum(torch.stack((entropies)))
             new_probs_b = torch.reshape(torch.stack((new_probs_b)), shape = (-1,1))
 
-            advantage_b = torch.from_numpy(rews_b).type(torch.FloatTensor) + gamma*critic_target(torch.from_numpy(next_state_b).type(torch.FloatTensor)) - critic_target(torch.from_numpy(state_b).type(torch.FloatTensor))
+            advantage_b = torch.from_numpy(rews_b).type(torch.cuda.FloatTensor) + gamma*critic_target(torch.from_numpy(next_state_b).type(torch.cuda.FloatTensor)) - critic_target(torch.from_numpy(state_b).type(torch.cuda.FloatTensor))
             advantage_b = torch.clamp(advantage_b, -1, 1)
             
             ratio_b = torch.reshape(torch.stack(ratio_b), shape = (-1,1))
