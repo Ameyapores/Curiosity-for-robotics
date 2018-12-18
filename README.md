@@ -3,7 +3,7 @@ Implementation of curiosity with PPO on OpenAI fetch. Here the robot is trained 
 <td><img src="/images/curiosity.gif?raw=true"></td>
 
 ## Code structure
-*dyn_model.py* contains a normalizer for the state and a class which predicts the next state given the current state and action. *PPO.py* contains the reinforcement learning algorithm.
+*dyn_model.py* contains a normalizer for the state and a class which predicts the next state given the current state and action. *ppo.py* contains the reinforcement learning algorithm.
 
 ## Requirements
 - Python3.5+
