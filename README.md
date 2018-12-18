@@ -1,6 +1,6 @@
 # Curiosity driven exploration for robotics Pytorch (Proximal policy optimization)
 Implementation of curiosity with PPO on OpenAI fetch. Here the robot is trained only on intrinsic rewards without any external reward shaping. Intriguingly, the robot discovers the path to the cube and does random perturbations to the cube in order to maximise rewards from unpredictability.
-<td><img src="/images/curiosity.gif></td>
+<td><img src="/images/curiosity.gif?raw=true"></td>
 
 ## Code structure
 *dyn_model.py* contains a normalizer for the state and a class which predicts the next state given the current state and action. *PPO.py* contains the reinforcement learning algorithm.
